@@ -1,1 +1,4 @@
 OBJ/
+.vscode/
+.vscode/settings.json
+USER/JLinkLog.txt

@@ -9,6 +9,9 @@
 #include "inv_mpu.h"
 #include "inv_mpu_dmp_motion_driver.h" 
 #include "adc.h"
+#include "usmart.h"			
+#include "usart3.h"
+#include "gps.h"
 
 
 
@@ -20,77 +23,27 @@
 //作者：正点原子 @ALIENTEK
 
 
-//void senior(void);
-//void caidan(void);
-//void adchj(void);
+u8 USART1_TX_BUF[USART3_MAX_RECV_LEN]; 					//串口1,发送缓存区
+nmea_msg gpsx; 											//GPS信息
+__align(4) u8 dtbuf[50];   								//打印缓存器
 
-
-
-
-// void adchj(void)
-// {
-// 	u16 adcx;
-// 	u8 key;           //保存键值
-// 	u16 temp;
-// 	OLED_Clear();
-// 	while(1) 
-// 	{		 
-// 		key = KEY_Scan(0);
-// 		if(key==KEY2_PRES)
-// 		{
-// 			senior();
-// 		}
-// 		OLED_ShowCHinese(0,0,25);
-// 		OLED_ShowCHinese(16,0,26);
-// 		OLED_ShowCHinese(32,0,24);
-// 		OLED_ShowString(48,0,":");
-// 		adcx=Get_Adc_Average(ADC_Channel_5,20);//获取通道5的转换值，20次取平均
-// 		adcx=adcx/40;
-// 		OLED_ShowNum(58,0,adcx,3,20);    //显示ADCC采样后的原始值
-// 		OLED_ShowString(96,0,"d");
-// 		OLED_ShowString(104,0,"B");
-		
-// 		OLED_ShowCHinese(0,2,27);
-// 		OLED_ShowCHinese(16,2,28);
-// 		OLED_ShowCHinese(32,2,29);
-// 		OLED_ShowCHinese(48,2,30);
-// 		OLED_ShowString(64,2,":");
-// 		temp=Get_Adc_Average(ADC_Channel_4,20);//获取通道5的转换值，20次取平均
-// 		temp=temp;
-// 		OLED_ShowNum(48,4,temp,4,20);    //显示ADCC采样后的原始值
-// 		OLED_ShowString(96,4,"L");
-// 		OLED_ShowString(104,4,"u");
-// 		OLED_ShowString(112,4,"x");
-		
-// 		OLED_ShowString(0,6,"key3:");
-// 		OLED_ShowCHinese(44,6,11);
-// 		OLED_ShowCHinese(60,6,12);
-// 	}
-// }
-
-// void caidan(void)
-// {
-// 	OLED_Clear();
-// 	OLED_ShowString(0,0,"key1:");
-// 	OLED_ShowString(0,2,"6050");
-// 	OLED_ShowCHinese(44,2,17);
-// 	OLED_ShowCHinese(60,2,18);
-// 	OLED_ShowCHinese(76,2,19);
-// 	OLED_ShowCHinese(92,2,20);
-// 	OLED_ShowCHinese(108,2,21);
-	
-// 	OLED_ShowString(0,4,"key2:");
-// 	OLED_ShowCHinese(0,6,17);
-// 	OLED_ShowCHinese(16,6,18);
-// 	OLED_ShowCHinese(32,6,22);
-// 	OLED_ShowCHinese(48,6,23);
-// 	OLED_ShowCHinese(64,6,24);
-// }
-
-
+void Gps_Msg_Show(void)
+{
+ 	float tp;		     	 
+	tp=gpsx.longitude;	   
+	sprintf((char *)dtbuf,"%.5f %1c   ",tp/=100000,gpsx.ewhemi);	//得到经度字符串
+ 	OLED_ShowString(0,2,dtbuf);	 	   
+	tp=gpsx.latitude;	   
+	sprintf((char *)dtbuf,"%.5f %1c   ",tp/=100000,gpsx.nshemi);	//得到纬度字符串
+ 	OLED_ShowString(0,4,dtbuf);	  
+}
 
 int main(void)
 { 
+	u8 key=0XFF;
+	u16 i,rxlen;
+	u8 lock=3;
+	u8 unlock=2;
 
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//设置系统中断优先级分组2
 	delay_init(168);     //初始化延时函数
@@ -102,10 +55,59 @@ int main(void)
 	usart3_init(384200);  //初始化串口3波特率为115200 Gps串口通信
 	usmart_dev.init(168);		//初始化USMART
 
-	while(1)
+	if(SkyTra_Cfg_Rate(5)!=0)	//设置定位信息更新速度为5Hz,顺便判断GPS模块是否在位. 
 	{
-		//senior();
-		OLED_ShowCHinese(92,2,20);
+   		OLED_ShowString(0,0,"start.....");
+		do
+		{
+			usart3_init(9600);			//初始化串口3波特率为9600
+	  		SkyTra_Cfg_Prt(3);			//重新设置模块的波特率为38400
+			usart3_init(38400);			//初始化串口3波特率为38400
+     		key=SkyTra_Cfg_Tp(100000);	//脉冲宽度为100ms
+		}while(SkyTra_Cfg_Rate(5)!=0&&key!=0);//配置SkyTraF8-BD的更新速率为5Hz
+	  	OLED_ShowString(0,0,"GPS OK");
+		delay_ms(1000);
+		OLED_Clear();//清除显示 
 	}
+	while(1) 
+	{		
+		delay_ms(1);
+		if(USART3_RX_STA&0X8000)		//接收到一次数据了
+		{
+			rxlen=USART3_RX_STA&0X7FFF;	//得到数据长度
+			for(i=0;i<rxlen;i++)USART1_TX_BUF[i]=USART3_RX_BUF[i];	   
+ 			USART3_RX_STA=0;		   	//启动下一次接收
+			USART1_TX_BUF[i]=0;			//自动添加结束符
+			GPS_Analysis(&gpsx,(u8*)USART1_TX_BUF);//分析字符串
+			Gps_Msg_Show();				//显示信息	
+			//if(upload)printf("\r\n%s\r\n",USART1_TX_BUF);//发送接收到的数据到串口1
+ 		}
+		key=KEY_Scan(0);
+		if (key==lock)
+		{
+			LED0=!LED0;
+		}
+		if (key==unlock)
+		{
+			LED1=!LED1;
+		}
+		
+		// if(key==KEY0_PRES)
+		// {
+		// 	upload=!upload;
+		// 	POINT_COLOR=RED;
+		// 	if(upload)LCD_ShowString(30,100,200,16,16,"NMEA Data Upload:ON ");
+		// 	else LCD_ShowString(30,100,200,16,16,"NMEA Data Upload:OFF");
+ 		// }
+		// if((lenx%500)==0)
+		// 	LED0=!LED0;
+		// lenx++;	
+	}
+
+	// while(1)
+	// {
+	// 	//senior();
+	// 	OLED_ShowCHinese(92,2,20);
+	// }
 		
 }
