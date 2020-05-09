@@ -10,6 +10,7 @@
 #include "inv_mpu_dmp_motion_driver.h"
 #include "adc.h"
 #include "usmart.h"
+#include "usart2.h"
 #include "usart3.h"
 #include "gps.h"
 #include "dht11.h"
@@ -55,7 +56,7 @@ void keyListen()
 	key = KEY_Scan(0);
 	if (key == lock)
 	{
-		LED0 = !LED0;
+		LED1 = !LED1;
 	}
 	if (key == unlock)
 	{
@@ -98,6 +99,8 @@ void initGPS()
 
 int main(void)
 {
+	u32 count = 0;
+
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //设置系统中断优先级分组2
 	delay_init(168);								//初始化延时函数
 	uart_init(115200); //初始化串口波特率为115200
@@ -108,13 +111,20 @@ int main(void)
 	usmart_dev.init(168); //初始化USMART
 	while(DHT11_Init());
 	initGPS();
+	//usart2_init(9600);
 	
 	while (1)
 	{
-		LED0 = !LED0;
-		updateTemperature();
-		updateLocation();
+		count++;
+		delay_ms(1);
 		keyListen();
-		delay_ms(2000);
+		if(count>=2000){
+			count =0;
+			//u2_printf("ddddd");
+			LED0 = !LED0;
+			updateTemperature();
+			updateLocation();
+		}
+		
 	}
 }
