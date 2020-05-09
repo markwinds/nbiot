@@ -27,11 +27,12 @@ nmea_msg gpsx;						   //GPS信息
 __align(4) u8 dtbuf[50];			   //打印缓存器
 
 u8 key = 0XFF;
-	u16 i, rxlen;
-	u8 lock = 3;
-	u8 unlock = 2;
-	u8 temperature;  	    
-	u8 humidity; 
+u16 i, rxlen;
+u8 lock = 3;
+u8 unlock = 2;
+u8 temperature;  	    
+u8 humidity; 
+u8 nbiotMsg[200];
 
 void Gps_Msg_Show(void)
 {
@@ -97,6 +98,24 @@ void initGPS()
 	}
 }
 
+void readUart2(){
+	u16 len =0;
+	u16 t = 0;
+	if(USART2_RX_STA&0x8000)
+	{					   
+		len=USART2_RX_STA&0x3fff;
+		for(t=0;t<len;t++)
+		{
+			nbiotMsg[t] = USART2_RX_BUF[t];
+		}
+		nbiotMsg[t] = '\0';
+		USART2_RX_STA=0;
+		//OLED_Clear(); 
+		u2_printf(nbiotMsg);
+		OLED_ShowString(0, 6, nbiotMsg);
+	}
+}
+
 int main(void)
 {
 	u32 count = 0;
@@ -111,16 +130,17 @@ int main(void)
 	usmart_dev.init(168); //初始化USMART
 	while(DHT11_Init());
 	initGPS();
-	//usart2_init(9600);
+	usart2_init(9600);
 	
 	while (1)
 	{
 		count++;
 		delay_ms(1);
 		keyListen();
+		readUart2();
 		if(count>=2000){
 			count =0;
-			//u2_printf("ddddd");
+			u2_printf("12");
 			LED0 = !LED0;
 			updateTemperature();
 			updateLocation();

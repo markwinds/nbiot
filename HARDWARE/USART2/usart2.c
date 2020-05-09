@@ -4,6 +4,8 @@
 #include "stdio.h"	 	 
 #include "string.h"	  
 #include "timer.h"
+#include "led.h"
+
 //////////////////////////////////////////////////////////////////////////////////	 
 //本程序只供学习使用，未经作者许可，不得用于其它任何用途
 //ALIENTEK STM32F4开发板
@@ -43,9 +45,15 @@ void USART2_IRQHandler(void)
 	{ 
 		if(USART2_RX_STA<USART2_MAX_RECV_LEN)		//还可以接收数据
 		{
-			TIM_SetCounter(TIM7,0);//计数器清空        				 
-			if(USART2_RX_STA==0)		
-				TIM_Cmd(TIM7, ENABLE);  //使能定时器7 
+			// TIM_SetCounter(TIM7,0);//计数器清空        				 
+			// if(USART2_RX_STA==0)		
+			// 	TIM_Cmd(TIM7, ENABLE);  //使能定时器7 
+			if (res == '#')
+			{
+				USART2_RX_STA|=1<<15; // 接收结束
+				LED1 = !LED1;
+				return;
+			}
 			USART2_RX_BUF[USART2_RX_STA++]=res;		//记录接收到的值	 
 		}else 
 		{
