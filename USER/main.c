@@ -34,6 +34,31 @@ u8 unlock = 2;
 u8 temperature;  	    
 u8 humidity; 
 u8 nbiotMsg[200];
+u8 binaryData[500];
+u8 binaryDataSize = 0;
+
+void char2Binary(u8* str){
+	u16 index = 0;
+	while (*str!='\0')
+	{
+		u8 c = *str;
+		u8 high = c/16;
+		u8 low = c%16;
+		if(high>9){
+			binaryData[index++] = (high-10)+'A';
+		}else{
+			binaryData[index++] = high + '0';
+		}
+		if(low>9){
+			binaryData[index++] = (low-10)+'A';
+		}else{
+			binaryData[index++] = low + '0';
+		}
+		str++;
+	}
+	binaryDataSize = index;
+	binaryData[index] = '\0';
+}
 
 void Gps_Msg_Show(void)
 {
@@ -121,8 +146,8 @@ void readUart2(){
 			return;
 		}
 		nbiotMsg[m] = '\0';
-		OLED_ShowString(0, 6, "                ");
-		OLED_ShowString(0, 6, nbiotMsg);
+		// OLED_ShowString(0, 6, "                ");
+		// OLED_ShowString(0, 6, nbiotMsg);
 	}
 }
 
@@ -141,6 +166,9 @@ int main(void)
 	while(DHT11_Init());
 	initGPS();
 	usart2_init(9600);
+	char2Binary("01234");
+	OLED_ShowString(0, 6, "                ");
+	OLED_ShowString(0, 6, binaryData);
 	
 	while (1)
 	{
