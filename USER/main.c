@@ -14,6 +14,7 @@
 #include "usart3.h"
 #include "gps.h"
 #include "dht11.h"
+#include "timer.h"
 
 //ALIENTEK 探索者STM32F407开发板 实验12
 //OLED显示实验-库函数版本
@@ -57,10 +58,12 @@ void keyListen()
 	key = KEY_Scan(0);
 	if (key == lock)
 	{
+		u2_printf("AT\n");
 		LED1 = !LED1;
 	}
 	if (key == unlock)
 	{
+		u2_printf("AT\n");
 		LED1 = !LED1;
 	}
 }
@@ -101,17 +104,24 @@ void initGPS()
 void readUart2(){
 	u16 len =0;
 	u16 t = 0;
+	u16 m = 0;
 	if(USART2_RX_STA&0x8000)
 	{					   
 		len=USART2_RX_STA&0x3fff;
+		USART2_RX_STA=0;
 		for(t=0;t<len;t++)
 		{
-			nbiotMsg[t] = USART2_RX_BUF[t];
+			if (USART2_RX_BUF[t] != '\r' && USART2_RX_BUF[t] != '\n')
+			{
+				nbiotMsg[m++] = USART2_RX_BUF[t];
+			}
 		}
-		nbiotMsg[t] = '\0';
-		USART2_RX_STA=0;
-		//OLED_Clear(); 
-		u2_printf(nbiotMsg);
+		if (m==0)
+		{
+			return;
+		}
+		nbiotMsg[m] = '\0';
+		OLED_ShowString(0, 6, "                ");
 		OLED_ShowString(0, 6, nbiotMsg);
 	}
 }
@@ -140,7 +150,6 @@ int main(void)
 		readUart2();
 		if(count>=2000){
 			count =0;
-			u2_printf("12");
 			LED0 = !LED0;
 			updateTemperature();
 			updateLocation();

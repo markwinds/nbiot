@@ -15,6 +15,9 @@
 
 
 extern vu16 USART3_RX_STA;
+extern vu16 USART2_RX_STA;
+
+u16 irqCount = 0;
 
 //定时器7中断服务程序		    
 void TIM7_IRQHandler(void)
@@ -55,4 +58,3 @@ void TIM7_Int_Init(u16 arr,u16 psc)
 	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器
 	
 }
-	 

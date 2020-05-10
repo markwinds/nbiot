@@ -45,13 +45,13 @@ void USART2_IRQHandler(void)
 	{ 
 		if(USART2_RX_STA<USART2_MAX_RECV_LEN)		//还可以接收数据
 		{
-			// TIM_SetCounter(TIM7,0);//计数器清空        				 
+			// TIM_SetCounter(TIM6,0);//计数器清空        				 
 			// if(USART2_RX_STA==0)		
-			// 	TIM_Cmd(TIM7, ENABLE);  //使能定时器7 
-			if (res == '#')
+			// 	TIM_Cmd(TIM6, ENABLE);  //使能定时器6
+			if (res == '\n')
 			{
+				irqCount++;
 				USART2_RX_STA|=1<<15; // 接收结束
-				LED1 = !LED1;
 				return;
 			}
 			USART2_RX_BUF[USART2_RX_STA++]=res;		//记录接收到的值	 
@@ -107,9 +107,9 @@ void usart2_init(u32 bound)
 	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;			//IRQ通道使能
 	NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器
 	
-	TIM7_Int_Init(100-1,8400-1);	//10ms中断一次
+	TIM7_Int_Init(1000-1,8400-1);
 	
-  TIM_Cmd(TIM7, DISABLE); //关闭定时器7
+ 	TIM_Cmd(TIM7, DISABLE); //关闭定时器6
 	
 	USART2_RX_STA=0;				//清零 
 }
