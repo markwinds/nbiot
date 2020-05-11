@@ -31,11 +31,45 @@ u8 key = 0XFF;
 u16 i, rxlen;
 u8 lock = 3;
 u8 unlock = 2;
-u8 temperature;  	    
+u8 temperature;  
+u8 lonData[100]; // 经度	    
+u8 latData[100]; // 纬度	 
 u8 humidity; 
 u8 nbiotMsg[200];
 u8 binaryData[500];
+u8 charData[60];
 u8 binaryDataSize = 0;
+u8 UDPReply[50];
+
+u8 strLen(u8 *str)
+{
+    u8 i = 0;      
+    while(str[i++]!='\0');
+    return i-1;
+}
+
+void binary2Char(u8* str){
+	u16 index = 0;
+	while (*str!='\0'){
+		u8 high = *str;
+		u8 low = 0;
+		str++;
+		low = *str;
+		str++;
+		if(high>='0' && high<='9'){
+			high = (high-'0')*16;
+		}else{
+			high = (high-'A'+10)*16;
+		}
+		if(low>='0' && low<='9'){
+			low = (low-'0');
+		}else{
+			low = (high-'A'+10);
+		}
+		charData[index++] = high+low;
+	}
+	charData[index] = '\0';
+}
 
 void char2Binary(u8* str){
 	u16 index = 0;
@@ -60,37 +94,30 @@ void char2Binary(u8* str){
 	binaryData[index] = '\0';
 }
 
+void sendDataByNbiot(){
+	u8 data[200];
+	sprintf((char *)data,"13#%d#%s#%s",temperature,lonData,latData);
+	char2Binary(data);
+	sprintf((char *)data,"AT+NMGS=%d,%s\r\n",binaryDataSize/2,binaryData);
+	u2_printf((char*)data);
+}
+
 void Gps_Msg_Show(void)
 {
 	float tp;
 	tp = gpsx.longitude;
-	sprintf((char *)dtbuf, "%.5f %1c   ", tp /= 100000, gpsx.ewhemi); //得到经度字符串
-	OLED_ShowString(0, 2, dtbuf);
+	sprintf((char *)lonData, "%.5f%1c", tp /= 100000, gpsx.ewhemi); //得到经度字符串
+	OLED_ShowString(0, 2, lonData);
 	tp = gpsx.latitude;
-	sprintf((char *)dtbuf, "%.5f %1c   ", tp /= 100000, gpsx.nshemi); //得到纬度字符串
-	OLED_ShowString(0, 4, dtbuf);
+	sprintf((char *)latData, "%.5f%1c", tp /= 100000, gpsx.nshemi); //得到纬度字符串
+	OLED_ShowString(0, 4, latData);
 }
 
 void updateTemperature()
 {
-	DHT11_Read_Data(&temperature,&humidity);		//读取温湿度值	
+	irqCount+=DHT11_Read_Data(&temperature,&humidity);		//读取温湿度值	
 	OLED_ShowNum(0,0,temperature,2,16);
 	OLED_ShowNum(30,0,humidity,4,16);
-}
-
-void keyListen()
-{
-	key = KEY_Scan(0);
-	if (key == lock)
-	{
-		u2_printf("AT\n");
-		LED1 = !LED1;
-	}
-	if (key == unlock)
-	{
-		u2_printf("AT\n");
-		LED1 = !LED1;
-	}
 }
 
 void updateLocation()
@@ -112,7 +139,7 @@ void initGPS()
 {
 	if (SkyTra_Cfg_Rate(5) != 0) //设置定位信息更新速度为5Hz,顺便判断GPS模块是否在位.
 	{
-		OLED_ShowString(0, 0, "start.....");
+		OLED_ShowString(0, 0, "Start GPS.....");
 		do
 		{
 			usart3_init(9600);						   //初始化串口3波特率为9600
@@ -120,13 +147,26 @@ void initGPS()
 			usart3_init(38400);						   //初始化串口3波特率为38400
 			key = SkyTra_Cfg_Tp(100000);			   //脉冲宽度为100ms
 		} while (SkyTra_Cfg_Rate(5) != 0 && key != 0); //配置SkyTraF8-BD的更新速率为5Hz
+		OLED_Clear(); //清除显示
 		OLED_ShowString(0, 0, "GPS OK");
 		delay_ms(1000);
 		OLED_Clear(); //清除显示
 	}
 }
 
-void readUart2(){
+void initTemperature(){
+	OLED_ShowString(0, 0, "Start TP.....");
+	while(DHT11_Init()){
+		delay_ms(400);
+	}
+	delay_ms(500);
+	OLED_Clear(); //清除显示
+	OLED_ShowString(0, 0, "TP OK");
+	delay_ms(1000);
+	OLED_Clear(); //清除显示
+}
+
+u8 readUart2(){
 	u16 len =0;
 	u16 t = 0;
 	u16 m = 0;
@@ -143,12 +183,73 @@ void readUart2(){
 		}
 		if (m==0)
 		{
-			return;
+			return 1;
 		}
 		nbiotMsg[m] = '\0';
-		// OLED_ShowString(0, 6, "                ");
-		// OLED_ShowString(0, 6, nbiotMsg);
+		OLED_ShowString(0, 6, "                ");
+		OLED_ShowString(0, 6, nbiotMsg);
+		return 1;
+	}else{
+		return 0;
 	}
+}
+
+void sendUDP(u8* str){
+	u8 temp[50];
+	u8 replyFlag = 0;
+	u8 size = 0;
+	u8 i = 0;
+	u8 index = 0;
+	char2Binary(str);
+	readUart2();
+	sprintf((char *)temp,"AT+NSOST=1,47.97.195.152,8800,%d,%s\r\n",binaryDataSize/2,binaryData);
+	u2_printf((char*)temp);
+	while (!replyFlag){
+		if(readUart2()){
+			if (nbiotMsg[1]=='N'){
+				replyFlag = 1;
+			}
+		}
+	}
+	replyFlag = 0;
+	size = nbiotMsg[strLen(nbiotMsg)-1];
+	sprintf((char *)temp,"AT+NSORF=1,%c\r\n",size);
+	u2_printf((char*)temp);
+	replyFlag = 0;
+	while (!replyFlag){
+		if(readUart2()){
+			if (nbiotMsg[0]=='1'){
+				replyFlag = 1;
+			}
+		}
+	}
+	for(i=23;i<23+(size-'0')*2;i++){
+		UDPReply[index++] = nbiotMsg[i];
+	}
+	UDPReply[index] = '\0';
+	binary2Char(UDPReply);
+	OLED_ShowString(0, 4, charData);
+}
+
+void keyListen()
+{
+	key = KEY_Scan(0);
+	if (key == lock)
+	{
+		LED1 = !LED1;
+		sendUDP("123");
+		LED1 = !LED1;
+	}
+	if (key == unlock)
+	{
+		LED1 = !LED1;
+		sendUDP("123");
+		LED1 = !LED1;
+	}
+}
+
+void initNbiot(){
+	u2_printf("AT+NSOCR=DGRAM,17,4589,1\r\n");
 }
 
 int main(void)
@@ -163,25 +264,26 @@ int main(void)
 	KEY_Init();
 	usart3_init(384200);  //初始化串口3波特率为115200 Gps串口通信
 	usmart_dev.init(168); //初始化USMART
-	while(DHT11_Init());
+	initTemperature();
 	initGPS();
 	usart2_init(9600);
-	char2Binary("01234");
-	OLED_ShowString(0, 6, "                ");
-	OLED_ShowString(0, 6, binaryData);
+	initNbiot();
+	// binary2Char("303132");
+	// OLED_ShowString(0, 4, charData);
 	
 	while (1)
 	{
-		count++;
-		delay_ms(1);
-		keyListen();
+		// count++;
+		// delay_ms(1);
+		 keyListen();
 		readUart2();
-		if(count>=2000){
-			count =0;
-			LED0 = !LED0;
-			updateTemperature();
-			updateLocation();
-		}
-		
+		// if(count>=5000){
+		// 	count =0;
+		// 	LED0 = !LED0;
+		// 	updateTemperature();
+		// 	updateLocation();
+		// 	sendDataByNbiot();
+		// 	OLED_ShowNum(30,6,humidity,4,16);
+		// }
 	}
 }
