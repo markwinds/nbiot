@@ -15,6 +15,8 @@
 #include "gps.h"
 #include "dht11.h"
 #include "timer.h"
+#include "ds18b20.h"
+#include <string.h>
 
 //ALIENTEK 探索者STM32F407开发板 实验12
 //OLED显示实验-库函数版本
@@ -40,65 +42,13 @@ u8 binaryData[500];
 u8 charData[60];
 u8 binaryDataSize = 0;
 u8 UDPReply[50];
-
-u8 strLen(u8 *str)
-{
-    u8 i = 0;      
-    while(str[i++]!='\0');
-    return i-1;
-}
-
-void binary2Char(u8* str){
-	u16 index = 0;
-	while (*str!='\0'){
-		u8 high = *str;
-		u8 low = 0;
-		str++;
-		low = *str;
-		str++;
-		if(high>='0' && high<='9'){
-			high = (high-'0')*16;
-		}else{
-			high = (high-'A'+10)*16;
-		}
-		if(low>='0' && low<='9'){
-			low = (low-'0');
-		}else{
-			low = (high-'A'+10);
-		}
-		charData[index++] = high+low;
-	}
-	charData[index] = '\0';
-}
-
-void char2Binary(u8* str){
-	u16 index = 0;
-	while (*str!='\0')
-	{
-		u8 c = *str;
-		u8 high = c/16;
-		u8 low = c%16;
-		if(high>9){
-			binaryData[index++] = (high-10)+'A';
-		}else{
-			binaryData[index++] = high + '0';
-		}
-		if(low>9){
-			binaryData[index++] = (low-10)+'A';
-		}else{
-			binaryData[index++] = low + '0';
-		}
-		str++;
-	}
-	binaryDataSize = index;
-	binaryData[index] = '\0';
-}
+u8 boxId[]="15";
+u8 locked = 0;
+u8 tempData[50];
 
 void sendDataByNbiot(){
 	u8 data[200];
-	sprintf((char *)data,"13#%d#%s#%s",temperature,lonData,latData);
-	char2Binary(data);
-	sprintf((char *)data,"AT+NMGS=%d,%s\r\n",binaryDataSize/2,binaryData);
+	sprintf((char *)data,"%s#%d#%s#%s",boxId,temperature,lonData,latData);
 	u2_printf((char*)data);
 }
 
@@ -115,9 +65,14 @@ void Gps_Msg_Show(void)
 
 void updateTemperature()
 {
-	irqCount+=DHT11_Read_Data(&temperature,&humidity);		//读取温湿度值	
+	short temp = DS18B20_Get_Temp();		//读取温湿度值	
+	temperature = temp/10;
 	OLED_ShowNum(0,0,temperature,2,16);
-	OLED_ShowNum(30,0,humidity,4,16);
+	OLED_ShowString(20, 0, ".");
+	OLED_ShowNum(30,0,temp%10,1,16);
+	if(temperature>70){
+		temperature = 0;
+	}
 }
 
 void updateLocation()
@@ -156,7 +111,7 @@ void initGPS()
 
 void initTemperature(){
 	OLED_ShowString(0, 0, "Start TP.....");
-	while(DHT11_Init()){
+	while(DS18B20_Init()){
 		delay_ms(400);
 	}
 	delay_ms(500);
@@ -186,49 +141,44 @@ u8 readUart2(){
 			return 1;
 		}
 		nbiotMsg[m] = '\0';
-		OLED_ShowString(0, 6, "                ");
-		OLED_ShowString(0, 6, nbiotMsg);
+		// OLED_ShowString(0, 6, "                ");
+		// OLED_ShowString(0, 6, nbiotMsg);
 		return 1;
 	}else{
 		return 0;
 	}
 }
 
-void sendUDP(u8* str){
+void sendUDP(char* str){
+	u2_printf(str);
+	i = 0;
+	while (!readUart2()){
+		i++;
+		delay_ms(100);
+		if (i>60)
+		{
+			i=0;
+			u2_printf(str);
+		}
+		
+	};
+}
+
+void showReply(){
+	OLED_ShowString(0, 6, "                ");
+	OLED_ShowString(0, 6, nbiotMsg);
+}
+
+u8 getUDPRes(char* str){
 	u8 temp[50];
-	u8 replyFlag = 0;
-	u8 size = 0;
-	u8 i = 0;
-	u8 index = 0;
-	char2Binary(str);
-	readUart2();
-	sprintf((char *)temp,"AT+NSOST=1,47.97.195.152,8800,%d,%s\r\n",binaryDataSize/2,binaryData);
-	u2_printf((char*)temp);
-	while (!replyFlag){
-		if(readUart2()){
-			if (nbiotMsg[1]=='N'){
-				replyFlag = 1;
-			}
-		}
+	sprintf((char *)temp,"%s#%s",str,boxId);
+	sendUDP((char*)temp);
+	if (strcmp((char*)nbiotMsg,"true")==0)
+	{
+		return 1;
+	}else{
+		return 0;
 	}
-	replyFlag = 0;
-	size = nbiotMsg[strLen(nbiotMsg)-1];
-	sprintf((char *)temp,"AT+NSORF=1,%c\r\n",size);
-	u2_printf((char*)temp);
-	replyFlag = 0;
-	while (!replyFlag){
-		if(readUart2()){
-			if (nbiotMsg[0]=='1'){
-				replyFlag = 1;
-			}
-		}
-	}
-	for(i=23;i<23+(size-'0')*2;i++){
-		UDPReply[index++] = nbiotMsg[i];
-	}
-	UDPReply[index] = '\0';
-	binary2Char(UDPReply);
-	OLED_ShowString(0, 4, charData);
 }
 
 void keyListen()
@@ -237,19 +187,80 @@ void keyListen()
 	if (key == lock)
 	{
 		LED1 = !LED1;
-		sendUDP("123");
+		if (getUDPRes("@LockEnable"))
+		{
+			OLED_ShowString(0, 6, "                ");
+			OLED_ShowString(0, 6, "Wait bind");
+			for (i = 15; i >0; i--)
+			{
+				OLED_ShowNum(110,6,i,2,16);
+				delay_ms(1000);
+			}
+			if (getUDPRes("@CheckLock")){
+				OLED_ShowString(0, 6, "                ");
+				OLED_ShowString(0, 6, "Bind OK");
+				locked = 1;
+			}else{
+				OLED_ShowString(0, 6, "                ");
+				OLED_ShowString(0, 6, "No phone bind");
+				locked = 0;
+			}
+		}else{
+			OLED_ShowString(0, 6, "                ");
+			OLED_ShowString(0, 6, "Has been used");
+		}
 		LED1 = !LED1;
 	}
 	if (key == unlock)
 	{
 		LED1 = !LED1;
-		sendUDP("123");
+		if (getUDPRes("@UnlockEnable"))
+		{
+			OLED_ShowString(0, 6, "                ");
+			OLED_ShowString(0, 6, "Wait confirm");
+			for (i = 15; i >0; i--)
+			{
+				OLED_ShowNum(110,6,i,2,16);
+				delay_ms(1000);
+			}
+			if (getUDPRes("@CheckUnlock")){
+				OLED_ShowString(0, 6, "                ");
+				OLED_ShowString(0, 6, "Receive OK");
+				locked = 1;
+			}else{
+				OLED_ShowString(0, 6, "                ");
+				OLED_ShowString(0, 6, "No phone receive");
+				locked = 0;
+			}
+		}else{
+			OLED_ShowString(0, 6, "                ");
+			OLED_ShowString(0, 6, "No package");
+		}
 		LED1 = !LED1;
 	}
 }
 
 void initNbiot(){
-	u2_printf("AT+NSOCR=DGRAM,17,4589,1\r\n");
+	OLED_ShowString(0, 0, "Start NB.....");
+	while (strcmp((char*)nbiotMsg,"Connected")!=0)
+	{
+		readUart2();
+	}
+	sprintf((char *)tempData,"!%s",boxId);
+	sendUDP((char*)tempData);
+	if (strcmp((char*)nbiotMsg,"true")==0){
+		locked = 1;
+	}else{
+		locked = 0;
+	}
+	OLED_Clear(); //清除显示
+	OLED_ShowString(0, 0, "NB OK");
+	delay_ms(1000);
+	OLED_Clear(); //清除显示
+}
+
+void showLockStatus(){
+	OLED_ShowString(60, 0, locked?"locked":"unlocked");
 }
 
 int main(void)
@@ -259,6 +270,7 @@ int main(void)
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //设置系统中断优先级分组2
 	delay_init(168);								//初始化延时函数
 	uart_init(115200); //初始化串口波特率为115200
+	usart2_init(9600);
 	LED_Init();		   //初始化LED
 	OLED_Init();	   //初始化OLED
 	KEY_Init();
@@ -266,24 +278,20 @@ int main(void)
 	usmart_dev.init(168); //初始化USMART
 	initTemperature();
 	initGPS();
-	usart2_init(9600);
 	initNbiot();
-	// binary2Char("303132");
-	// OLED_ShowString(0, 4, charData);
 	
 	while (1)
 	{
-		// count++;
-		// delay_ms(1);
-		 keyListen();
-		readUart2();
-		// if(count>=5000){
-		// 	count =0;
-		// 	LED0 = !LED0;
-		// 	updateTemperature();
-		// 	updateLocation();
-		// 	sendDataByNbiot();
-		// 	OLED_ShowNum(30,6,humidity,4,16);
-		// }
+		count++;
+		delay_ms(1);
+		keyListen();
+		showLockStatus();
+		if(count>=5000){
+			count =0;
+			LED0 = !LED0;
+			updateTemperature();
+			updateLocation();
+			sendDataByNbiot();
+		}
 	}
 }
